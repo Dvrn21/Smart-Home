@@ -1,0 +1,728 @@
+#ifndef BOARD_SDMMC_POWER_CHANNEL
+#define BOARD_SDMMC_POWER_CHANNEL 4
+#endif
+
+#include <M5Unified.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
+#include <time.h>
+
+const char* WIFI_SSID   = "S22";
+const char* WIFI_PASSWORD = "qsdfghjklm1";
+const char* MQTT_HOST   = "22559c6a56cd495e81b30e052711038c.s1.eu.hivemq.cloud";
+const int   MQTT_PORT   = 8883;
+const char* MQTT_USER   = "pierretav";
+const char* MQTT_PASS   = "Pierre78711";
+const char* MQTT_CLIENT = "TAB5_SmartHome";
+
+static const char HIVEMQ_CA_CERT[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw
+TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh
+cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4
+WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu
+ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY
+MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc
+h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+
+0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U
+A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW
+T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH
+B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC
+B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv
+KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn
+OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn
+jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw
+qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI
+rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV
+HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq
+hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL
+ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ
+3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK
+NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5
+ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur
+TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC
+jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc
+oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq
+4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA
+mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d
+emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
+-----END CERTIFICATE-----
+)EOF";
+
+// ─── COULEURS ─────────────────────────────────────────────────
+#define COL_BG         0x0841
+#define COL_CARD       0x2124
+#define COL_ORANGE     0xF2A0
+#define COL_WHITE      0xFFFF
+#define COL_GREY       0x7BEF
+#define COL_DARK_GREY  0x4208
+#define COL_GREEN      0x07E0
+#define COL_GREEN_DARK 0x0320
+#define COL_RED        0xF800
+#define COL_BLUE       0x5DDF
+#define COL_YELLOW     0xFFE0
+#define COL_TEAL       0x0752
+#define COL_BORDER     0x39E7
+#define COL_HEAT       0xFC00
+#define COL_WIND       0xAFFF
+
+// ─── STRUCTURE PIÈCE ──────────────────────────────────────────
+struct Room {
+  const char* id;
+  const char* label;
+  bool  lightOn;
+  int   brightness;
+  float temp;
+  float humidity;
+  bool  hasDHT;
+  int   shutterPos;
+  bool  shutterMoving;
+  bool  windowOpen;
+  bool  hasWindow;
+  bool  heatOn;
+  float heatTarget;
+  bool  hasHeat;
+  bool     motionDetected;
+  uint32_t motionLastSeen;
+  bool     hasPIR;
+};
+
+Room rooms[8] = {
+  {"salon",      "Salon",       false,80, 0,0, true,  50, false, false,true, false,20.0, true, false,0, true },
+  {"ch-parents", "Ch.Parents",  false,80, 0,0, true,  50, false, false,true, false,19.0, true, false,0, true },
+  {"ch-enfant1", "Ch.Enf 1",    false,80, 0,0, true,  -1, false, false,true, false,19.0, true, false,0, false},
+  {"ch-enfant2", "Ch.Enf 2",    false,80, 0,0, true,  -1, false, false,true, false,19.0, true, false,0, false},
+  {"sdb",        "Salle Bain",  false,80, 0,0, true,  -1, false, false,true, false,22.0, true, false,0, true },
+  {"cuisine",    "Cuisine",     false,80, 0,0, true,  -1, false, false,true, false,19.0, true, false,0, false},
+  {"garage",     "Garage",      false,80, 0,0, false, -1, false, false,true, false, 0.0, false,false,0, true },
+  {"terrasse",   "Terrasse",    false,80, 0,0, false,100, false, false,false,false, 0.0, false,false,0, true },
+};
+const int NUM_ROOMS = 8;
+#define MOTION_ALERT_MS 30000
+
+// ─── ÉTAT APPLICATION ─────────────────────────────────────────
+enum AppView { VIEW_GRID, VIEW_DETAIL };
+AppView  currentView   = VIEW_GRID;
+int      selectedRoom  = 0;
+bool     mqttConnected = false;
+bool     needRedraw    = false;
+uint32_t lastReconnect = 0;
+uint32_t lastSliderPub = 0;
+#define  SLIDER_PUB_MS 200
+
+int SCR_W, SCR_H, HDR_H, CARD_W, CARD_H, GAP;
+
+struct Rect { int x, y, w, h; };
+Rect cardRects[8];
+
+WiFiClientSecure wifiClient;
+PubSubClient     mqttClient(wifiClient);
+
+// ─── TOPICS ───────────────────────────────────────────────────
+String topicLightCmd(int i)     { return "smarthome/lights/"   + String(rooms[i].id) + "/cmd";   }
+String topicLightState(int i)   { return "smarthome/lights/"   + String(rooms[i].id) + "/state"; }
+String topicDHT(int i)          { return "smarthome/sensors/"  + String(rooms[i].id) + "/dht22"; }
+String topicPIR(int i)          { return "smarthome/sensors/"  + String(rooms[i].id) + "/motion";}
+String topicShutterCmd(int i)   { return "smarthome/shutters/" + String(rooms[i].id) + "/cmd";   }
+String topicShutterState(int i) { return "smarthome/shutters/" + String(rooms[i].id) + "/state"; }
+String topicWindowState(int i)  { return "smarthome/windows/"  + String(rooms[i].id) + "/state"; }
+String topicHeatCmd(int i)      { return "smarthome/heating/"  + String(rooms[i].id) + "/cmd";   }
+String topicHeatState(int i)    { return "smarthome/heating/"  + String(rooms[i].id) + "/state"; }
+
+// ─── MQTT CALLBACK ────────────────────────────────────────────
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  char buf[256];
+  unsigned int len = min(length, (unsigned int)(sizeof(buf)-1));
+  memcpy(buf, payload, len);
+  buf[len] = 0;
+  String t = String(topic);
+  JsonDocument doc;
+  if (deserializeJson(doc, buf) != DeserializationError::Ok) return;
+
+  for (int i = 0; i < NUM_ROOMS; i++) {
+    if (t == topicLightState(i)) {
+      const char* s = doc["state"] | "";
+      if (strcmp(s,"ON")==0)  rooms[i].lightOn = true;
+      if (strcmp(s,"OFF")==0) rooms[i].lightOn = false;
+      if (doc["brightness"].is<int>()) rooms[i].brightness = doc["brightness"];
+      needRedraw = true; return;
+    }
+    if (t == topicDHT(i)) {
+      rooms[i].temp     = doc["temp"]     | 0.0f;
+      rooms[i].humidity = doc["humidity"] | 0.0f;
+      needRedraw = true; return;
+    }
+    if (t == topicPIR(i)) {
+      if (doc["detected"] | false) {
+        rooms[i].motionDetected = true;
+        rooms[i].motionLastSeen = millis();
+      }
+      needRedraw = true; return;
+    }
+    if (t == topicShutterState(i)) {
+      rooms[i].shutterPos    = doc["position"] | rooms[i].shutterPos;
+      rooms[i].shutterMoving = doc["moving"]   | false;
+      needRedraw = true; return;
+    }
+    if (t == topicWindowState(i)) {
+      const char* s = doc["state"] | "";
+      if (strcmp(s,"open")==0)   rooms[i].windowOpen = true;
+      if (strcmp(s,"closed")==0) rooms[i].windowOpen = false;
+      needRedraw = true; return;
+    }
+    if (t == topicHeatState(i)) {
+      const char* s = doc["state"] | "";
+      if (strcmp(s,"ON")==0)  rooms[i].heatOn = true;
+      if (strcmp(s,"OFF")==0) rooms[i].heatOn = false;
+      if (doc["target"].is<float>()) rooms[i].heatTarget = doc["target"];
+      needRedraw = true; return;
+    }
+  }
+}
+
+// ─── MQTT CONNEXION ───────────────────────────────────────────
+bool mqttConnect() {
+  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setCallback(mqttCallback);
+  mqttClient.setBufferSize(512);
+  mqttClient.setKeepAlive(60);
+  String will = "{\"status\":\"offline\",\"client\":\"TAB5_SmartHome\"}";
+  bool ok = mqttClient.connect(MQTT_CLIENT, MQTT_USER, MQTT_PASS,
+                               "smarthome/status/tab5", 1, true, will.c_str());
+  if (ok) {
+    mqttClient.subscribe("smarthome/lights/+/state",   1);
+    mqttClient.subscribe("smarthome/sensors/+/dht22",  1);
+    mqttClient.subscribe("smarthome/sensors/+/motion", 1);
+    mqttClient.subscribe("smarthome/shutters/+/state", 1);
+    mqttClient.subscribe("smarthome/windows/+/state",  1);
+    mqttClient.subscribe("smarthome/heating/+/state",  1);
+    mqttClient.publish("smarthome/status/tab5",
+      "{\"status\":\"online\",\"client\":\"TAB5_SmartHome\"}", true);
+    mqttConnected = true;
+  } else {
+    mqttConnected = false;
+  }
+  return ok;
+}
+
+// ─── PUBLICATIONS ─────────────────────────────────────────────
+void publishLight(int i) {
+  if (!mqttClient.connected()) return;
+  char buf[128];
+  snprintf(buf, sizeof(buf), "{\"state\":\"%s\",\"brightness\":%d,\"src\":\"TAB5\"}",
+           rooms[i].lightOn ? "ON" : "OFF", rooms[i].brightness);
+  mqttClient.publish(topicLightCmd(i).c_str(), buf, false);
+}
+
+void publishShutter(int i) {
+  if (!mqttClient.connected() || rooms[i].shutterPos < 0) return;
+  char buf[64];
+  snprintf(buf, sizeof(buf), "{\"position\":%d,\"src\":\"TAB5\"}", rooms[i].shutterPos);
+  mqttClient.publish(topicShutterCmd(i).c_str(), buf, false);
+}
+
+void publishHeat(int i) {
+  if (!mqttClient.connected() || !rooms[i].hasHeat) return;
+  char buf[128];
+  snprintf(buf, sizeof(buf), "{\"state\":\"%s\",\"target\":%.1f,\"src\":\"TAB5\"}",
+           rooms[i].heatOn ? "ON" : "OFF", rooms[i].heatTarget);
+  mqttClient.publish(topicHeatCmd(i).c_str(), buf, false);
+}
+
+// ─── LAYOUT ───────────────────────────────────────────────────
+void computeLayout() {
+  SCR_W  = M5.Display.width();
+  SCR_H  = M5.Display.height();
+  HDR_H  = max(34, SCR_H * 5 / 100);
+  GAP    = max(3, SCR_W / 160);
+  CARD_W = (SCR_W - GAP * 5) / 4;
+  CARD_H = (SCR_H - HDR_H - GAP * 3) / 2;
+  for (int i = 0; i < NUM_ROOMS; i++) {
+    int col = i % 4, row = i / 4;
+    cardRects[i] = {
+      GAP + col * (CARD_W + GAP),
+      HDR_H + GAP + row * (CARD_H + GAP),
+      CARD_W, CARD_H
+    };
+  }
+}
+
+// ─── HEADER ───────────────────────────────────────────────────
+void drawHeader() {
+  M5.Display.fillRect(0, 0, SCR_W, HDR_H, 0x18C3);
+  M5.Display.fillRect(0, 0, 5, HDR_H, COL_ORANGE);
+  M5.Display.setTextSize(2);
+  M5.Display.setTextColor(COL_ORANGE);
+  M5.Display.setCursor(10, HDR_H/2 - 8);
+  M5.Display.print("SMART HOME");
+  time_t now = time(nullptr);
+  struct tm* t = localtime(&now);
+  char ts[9]; snprintf(ts, sizeof(ts), "%02d:%02d:%02d", t->tm_hour, t->tm_min, t->tm_sec);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextColor(COL_WHITE);
+  M5.Display.setCursor(SCR_W/2 - 25, HDR_H/2 - 4);
+  M5.Display.print(ts);
+  M5.Display.setTextColor(mqttConnected ? COL_GREEN : COL_RED);
+  M5.Display.setCursor(SCR_W/2 + 50, HDR_H/2 - 4);
+  M5.Display.print(mqttConnected ? "MQTT OK" : "MQTT --");
+  if (currentView == VIEW_DETAIL) {
+    M5.Display.fillRoundRect(SCR_W - 110, 4, 102, HDR_H - 8, 5, 0x18C3);
+    M5.Display.drawRoundRect(SCR_W - 110, 4, 102, HDR_H - 8, 5, COL_ORANGE);
+    M5.Display.setTextColor(COL_ORANGE);
+    M5.Display.setTextSize(1);
+    M5.Display.setCursor(SCR_W - 102, HDR_H/2 - 4);
+    M5.Display.print("< Retour");
+  } else {
+    M5.Display.setTextColor(COL_GREY);
+    M5.Display.setTextSize(1);
+    M5.Display.setCursor(SCR_W - 110, HDR_H/2 - 4);
+    M5.Display.print(WiFi.localIP().toString().c_str());
+  }
+}
+
+// ─── CARTE GRILLE ─────────────────────────────────────────────
+void drawRoomCard(int idx) {
+  Rect  r  = cardRects[idx];
+  Room& rm = rooms[idx];
+  if (rm.motionDetected && millis() - rm.motionLastSeen > MOTION_ALERT_MS)
+    rm.motionDetected = false;
+  uint16_t bg   = rm.lightOn ? COL_GREEN_DARK : COL_CARD;
+  uint16_t bord = rm.motionDetected ? COL_RED :
+                  rm.lightOn        ? COL_GREEN : COL_BORDER;
+  M5.Display.fillRect(r.x, r.y, r.w, r.h, bg);
+  M5.Display.drawRect(r.x, r.y, r.w, r.h, bord);
+  int pad = max(5, CARD_W / 28);
+  int cy  = r.y + CARD_H / 2;
+  M5.Display.setTextSize(2);
+  M5.Display.setTextColor(COL_WHITE);
+  M5.Display.setCursor(r.x + pad, r.y + 6);
+  M5.Display.print(rm.label);
+  uint16_t lc = rm.lightOn ? COL_YELLOW : COL_DARK_GREY;
+  M5.Display.fillCircle(r.x + pad + 7, cy - 2, 7, lc);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextColor(rm.lightOn ? COL_YELLOW : COL_GREY);
+  M5.Display.setCursor(r.x + pad + 18, cy - 6);
+  M5.Display.print(rm.lightOn ? "ON" : "OFF");
+  if (rm.hasDHT && rm.temp > 0) {
+    M5.Display.setTextColor(COL_TEAL);
+    M5.Display.setCursor(r.x + pad, cy + 8);
+    M5.Display.printf("%.1fC  %.0f%%", rm.temp, rm.humidity);
+  }
+  if (rm.hasHeat && rm.heatOn) {
+    M5.Display.setTextColor(COL_HEAT);
+    M5.Display.setCursor(r.x + r.w - 34, cy - 6);
+    M5.Display.printf("%.0fC", rm.heatTarget);
+  }
+  int bx = r.x + pad;
+  int by = r.y + CARD_H - 13;
+  if (rm.hasWindow) {
+    uint16_t wc = rm.windowOpen ? COL_WIND : COL_DARK_GREY;
+    M5.Display.fillRect(bx, by, 10, 10, wc);
+    M5.Display.setTextColor(rm.windowOpen ? COL_WIND : COL_DARK_GREY);
+    M5.Display.setCursor(bx + 12, by + 1);
+    M5.Display.print(rm.windowOpen ? "ouv" : "ferm");
+    bx += 40;
+  }
+  if (rm.hasPIR) {
+    uint16_t pc = rm.motionDetected ? COL_RED : COL_DARK_GREY;
+    M5.Display.fillCircle(bx + 5, by + 5, 5, pc);
+  }
+  M5.Display.setTextColor(COL_GREY);
+  M5.Display.setCursor(r.x + r.w - 12, r.y + CARD_H - 12);
+  M5.Display.print(">");
+}
+
+void drawGrid() {
+  M5.Display.fillRect(0, HDR_H, SCR_W, SCR_H - HDR_H, COL_BG);
+  for (int i = 0; i < NUM_ROOMS; i++) drawRoomCard(i);
+}
+
+// ─── LAYOUT DÉTAIL ────────────────────────────────────────────
+struct DetailLayout {
+  int yLightBtn, yBriBar, yHeatBtn, yHeatAdj;
+  int yShutLabel, yShutBtns, yShutBar;
+  int yWinLabel, yDHTLabel, yMotionBadge;
+  int col1, col2, colW, pad, btnH, barH, rowGap;
+};
+DetailLayout DL;
+
+void computeDetailLayout() {
+  DL.pad    = 16;
+  DL.btnH   = 48;
+  DL.barH   = 20;
+  DL.rowGap = 18;
+  DL.col1   = DL.pad;
+  DL.col2   = SCR_W / 2 + DL.pad;
+  DL.colW   = SCR_W / 2 - DL.pad * 2;
+  int yBase = HDR_H + 58;
+  int yL = yBase;
+  yL += 20;
+  DL.yLightBtn = yL; yL += DL.btnH + DL.rowGap;
+  DL.yBriBar   = yL; yL += DL.barH + DL.rowGap * 2;
+  yL += 20;
+  DL.yHeatBtn  = yL; yL += DL.btnH + DL.rowGap;
+  DL.yHeatAdj  = yL; yL += DL.btnH + DL.rowGap * 2;
+  DL.yShutLabel= yL; yL += 20;
+  DL.yShutBtns = yL; yL += DL.btnH + DL.rowGap;
+  DL.yShutBar  = yL;
+  int yR = yBase;
+  DL.yWinLabel    = yR; yR += 20 + DL.btnH + DL.rowGap * 2;
+  DL.yDHTLabel    = yR; yR += 20 + 60 + DL.rowGap * 2;
+  DL.yMotionBadge = yR;
+}
+
+// ─── VUE DÉTAIL ───────────────────────────────────────────────
+void drawDetailView(int idx) {
+  Room& rm = rooms[idx];
+  M5.Display.fillRect(0, HDR_H, SCR_W, SCR_H - HDR_H, COL_BG);
+  M5.Display.setTextSize(3);
+  M5.Display.setTextColor(COL_ORANGE);
+  M5.Display.setCursor(DL.col1, HDR_H + 8);
+  M5.Display.print(rm.label);
+  M5.Display.drawFastHLine(DL.pad, HDR_H + 50, SCR_W - DL.pad*2, COL_BORDER);
+
+  // ── Lumière ──
+  M5.Display.setTextSize(2); M5.Display.setTextColor(COL_ORANGE);
+  M5.Display.setCursor(DL.col1, DL.yLightBtn - 20);
+  M5.Display.print("LUMIERE");
+  uint16_t lbg = rm.lightOn ? COL_GREEN : COL_DARK_GREY;
+  M5.Display.fillRoundRect(DL.col1, DL.yLightBtn, DL.colW, DL.btnH, 8, lbg);
+  M5.Display.drawRoundRect(DL.col1, DL.yLightBtn, DL.colW, DL.btnH, 8,
+                           rm.lightOn ? COL_GREEN : COL_GREY);
+  M5.Display.setTextSize(3);
+  M5.Display.setTextColor(rm.lightOn ? 0x0000 : COL_GREY);
+  M5.Display.setCursor(DL.col1 + DL.colW/2 - 22, DL.yLightBtn + DL.btnH/2 - 12);
+  M5.Display.print(rm.lightOn ? "ON" : "OFF");
+  int bw = DL.colW - 50;
+  M5.Display.fillRoundRect(DL.col1, DL.yBriBar, bw, DL.barH, 6, COL_DARK_GREY);
+  int fw = bw * rm.brightness / 100;
+  if (fw > 0) M5.Display.fillRoundRect(DL.col1, DL.yBriBar, fw, DL.barH, 6,
+                                       rm.lightOn ? COL_YELLOW : 0x4228);
+  if (fw > 2) M5.Display.drawFastVLine(DL.col1 + fw - 1, DL.yBriBar - 2, DL.barH + 4, COL_WHITE);
+  M5.Display.setTextSize(2); M5.Display.setTextColor(COL_GREY);
+  M5.Display.setCursor(DL.col1 + bw + 6, DL.yBriBar + DL.barH/2 - 8);
+  M5.Display.printf("%d%%", rm.brightness);
+
+  // ── Chauffage ──
+  if (rm.hasHeat) {
+    M5.Display.setTextSize(2); M5.Display.setTextColor(COL_ORANGE);
+    M5.Display.setCursor(DL.col1, DL.yHeatBtn - 20);
+    M5.Display.print("CHAUFFAGE");
+    uint16_t hbg = rm.heatOn ? COL_HEAT : COL_DARK_GREY;
+    M5.Display.fillRoundRect(DL.col1, DL.yHeatBtn, DL.colW, DL.btnH, 8, hbg);
+    M5.Display.drawRoundRect(DL.col1, DL.yHeatBtn, DL.colW, DL.btnH, 8,
+                             rm.heatOn ? COL_HEAT : COL_GREY);
+    M5.Display.setTextSize(3);
+    M5.Display.setTextColor(rm.heatOn ? 0x0000 : COL_GREY);
+    M5.Display.setCursor(DL.col1 + DL.colW/2 - 22, DL.yHeatBtn + DL.btnH/2 - 12);
+    M5.Display.print(rm.heatOn ? "ON" : "OFF");
+    int bW = 52;
+    M5.Display.fillRoundRect(DL.col1, DL.yHeatAdj, bW, DL.btnH, 8, COL_DARK_GREY);
+    M5.Display.drawRoundRect(DL.col1, DL.yHeatAdj, bW, DL.btnH, 8, COL_GREY);
+    M5.Display.setTextSize(3); M5.Display.setTextColor(COL_WHITE);
+    M5.Display.setCursor(DL.col1 + bW/2 - 9, DL.yHeatAdj + DL.btnH/2 - 12);
+    M5.Display.print("-");
+    M5.Display.setTextSize(3); M5.Display.setTextColor(COL_HEAT);
+    M5.Display.setCursor(DL.col1 + bW + 10, DL.yHeatAdj + DL.btnH/2 - 12);
+    M5.Display.printf("%.1f", rm.heatTarget);
+    M5.Display.setTextSize(2); M5.Display.print("C");
+    int plusX = DL.col1 + bW + 90;
+    M5.Display.fillRoundRect(plusX, DL.yHeatAdj, bW, DL.btnH, 8, COL_DARK_GREY);
+    M5.Display.drawRoundRect(plusX, DL.yHeatAdj, bW, DL.btnH, 8, COL_GREY);
+    M5.Display.setTextSize(3); M5.Display.setTextColor(COL_WHITE);
+    M5.Display.setCursor(plusX + bW/2 - 9, DL.yHeatAdj + DL.btnH/2 - 12);
+    M5.Display.print("+");
+  }
+
+  // ── Volet ──
+  if (rm.shutterPos >= 0) {
+    M5.Display.setTextSize(2); M5.Display.setTextColor(COL_ORANGE);
+    M5.Display.setCursor(DL.col1, DL.yShutLabel);
+    M5.Display.printf("VOLET  %d%%", rm.shutterPos);
+    int bW3 = (DL.colW - 8) / 3;
+    const char* lbls[3] = {"Ferme", "Mi", "Ouvert"};
+    int vals[3] = {0, 50, 100};
+    for (int b = 0; b < 3; b++) {
+      int bx = DL.col1 + b * (bW3 + 4);
+      bool active = (rm.shutterPos == vals[b]);
+      M5.Display.fillRoundRect(bx, DL.yShutBtns, bW3, DL.btnH, 8,
+                               active ? COL_BLUE : COL_DARK_GREY);
+      M5.Display.drawRoundRect(bx, DL.yShutBtns, bW3, DL.btnH, 8,
+                               active ? COL_BLUE : COL_GREY);
+      M5.Display.setTextSize(2);
+      M5.Display.setTextColor(active ? 0x0000 : COL_GREY);
+      int tw = strlen(lbls[b]) * 12;
+      M5.Display.setCursor(bx + bW3/2 - tw/2, DL.yShutBtns + DL.btnH/2 - 8);
+      M5.Display.print(lbls[b]);
+    }
+    int sw = DL.colW - 50;
+    M5.Display.fillRoundRect(DL.col1, DL.yShutBar, sw, DL.barH, 6, COL_DARK_GREY);
+    int sfw = sw * rm.shutterPos / 100;
+    if (sfw > 0) M5.Display.fillRoundRect(DL.col1, DL.yShutBar, sfw, DL.barH, 6,
+                                          rm.shutterMoving ? COL_ORANGE : COL_BLUE);
+    if (sfw > 2) M5.Display.drawFastVLine(DL.col1 + sfw - 1, DL.yShutBar - 2, DL.barH + 4, COL_WHITE);
+  }
+
+  // ── Fenêtre ──
+  if (rm.hasWindow) {
+    M5.Display.setTextSize(2); M5.Display.setTextColor(COL_ORANGE);
+    M5.Display.setCursor(DL.col2, DL.yWinLabel);
+    M5.Display.print("FENETRE");
+    uint16_t wc = rm.windowOpen ? COL_WIND : COL_DARK_GREY;
+    M5.Display.fillRoundRect(DL.col2, DL.yWinLabel + 22, DL.colW, DL.btnH, 8, wc);
+    M5.Display.setTextSize(3);
+    M5.Display.setTextColor(rm.windowOpen ? 0x0000 : COL_GREY);
+    const char* wlbl = rm.windowOpen ? "Ouverte" : "Fermee";
+    int tw = strlen(wlbl) * 18;
+    M5.Display.setCursor(DL.col2 + DL.colW/2 - tw/2,
+                         DL.yWinLabel + 22 + DL.btnH/2 - 12);
+    M5.Display.print(wlbl);
+    M5.Display.setTextSize(1); M5.Display.setTextColor(COL_GREY);
+    M5.Display.setCursor(DL.col2, DL.yWinLabel + 22 + DL.btnH + 6);
+    M5.Display.print("(capteur automatique)");
+  }
+
+  // ── Capteurs ──
+  M5.Display.setTextSize(2); M5.Display.setTextColor(COL_ORANGE);
+  M5.Display.setCursor(DL.col2, DL.yDHTLabel);
+  M5.Display.print("CAPTEURS");
+  if (rm.hasDHT && rm.temp > 0) {
+    M5.Display.setTextSize(4); M5.Display.setTextColor(COL_TEAL);
+    M5.Display.setCursor(DL.col2, DL.yDHTLabel + 22);
+    M5.Display.printf("%.1f", rm.temp);
+    M5.Display.setTextSize(2); M5.Display.setTextColor(COL_GREY);
+    M5.Display.print("C");
+    M5.Display.setTextSize(3);
+    M5.Display.setTextColor(rm.humidity > 65 ? COL_YELLOW : COL_GREY);
+    M5.Display.setCursor(DL.col2, DL.yDHTLabel + 62);
+    M5.Display.printf("%.0f%%", rm.humidity);
+  } else if (rm.hasDHT) {
+    M5.Display.setTextSize(3); M5.Display.setTextColor(COL_DARK_GREY);
+    M5.Display.setCursor(DL.col2, DL.yDHTLabel + 22);
+    M5.Display.print("--.-C");
+    M5.Display.setCursor(DL.col2, DL.yDHTLabel + 62);
+    M5.Display.print("--%");
+  }
+
+  // ── Mouvement ──
+  if (rm.hasPIR) {
+    bool motion = rm.motionDetected && millis() - rm.motionLastSeen < MOTION_ALERT_MS;
+    M5.Display.setTextSize(2); M5.Display.setTextColor(COL_ORANGE);
+    M5.Display.setCursor(DL.col2, DL.yMotionBadge);
+    M5.Display.print("MOUVEMENT");
+    uint16_t mc = motion ? COL_RED : 0x2924;
+    M5.Display.fillRoundRect(DL.col2, DL.yMotionBadge + 22, DL.colW, DL.btnH, 8, mc);
+    M5.Display.drawRoundRect(DL.col2, DL.yMotionBadge + 22, DL.colW, DL.btnH, 8,
+                             motion ? COL_RED : COL_BORDER);
+    M5.Display.setTextSize(2);
+    M5.Display.setTextColor(motion ? COL_WHITE : COL_DARK_GREY);
+    const char* mlbl = motion ? "! DETECTE !" : "---";
+    int tw = strlen(mlbl) * 12;
+    M5.Display.setCursor(DL.col2 + DL.colW/2 - tw/2,
+                         DL.yMotionBadge + 22 + DL.btnH/2 - 8);
+    M5.Display.print(mlbl);
+  }
+}
+
+// ─── TACTILE GRILLE ───────────────────────────────────────────
+void handleTouchGrid() {
+  auto touch = M5.Touch.getDetail();
+  if (!touch.wasPressed()) return;
+  int tx = touch.x, ty = touch.y;
+  for (int i = 0; i < NUM_ROOMS; i++) {
+    Rect r = cardRects[i];
+    if (tx >= r.x && tx < r.x+r.w && ty >= r.y && ty < r.y+r.h) {
+      selectedRoom = i;
+      currentView  = VIEW_DETAIL;
+      M5.Display.fillScreen(COL_BG);
+      drawHeader();
+      drawDetailView(i);
+      return;
+    }
+  }
+}
+
+// ─── TACTILE DÉTAIL ───────────────────────────────────────────
+void handleTouchDetail() {
+  auto touch = M5.Touch.getDetail();
+  Room& rm = rooms[selectedRoom];
+
+  if (touch.wasPressed()) {
+    int tx = touch.x, ty = touch.y;
+
+    // Retour
+    if (tx >= SCR_W-110 && ty >= 4 && ty <= HDR_H-4) {
+      currentView = VIEW_GRID;
+      M5.Display.fillScreen(COL_BG);
+      drawHeader(); drawGrid();
+      return;
+    }
+    // Toggle lumière
+    if (tx >= DL.col1 && tx <= DL.col1+DL.colW &&
+        ty >= DL.yLightBtn && ty <= DL.yLightBtn+DL.btnH) {
+      rm.lightOn = !rm.lightOn;
+      publishLight(selectedRoom);
+      drawDetailView(selectedRoom); drawHeader();
+      return;
+    }
+    // Toggle chauffage
+    if (rm.hasHeat &&
+        tx >= DL.col1 && tx <= DL.col1+DL.colW &&
+        ty >= DL.yHeatBtn && ty <= DL.yHeatBtn+DL.btnH) {
+      rm.heatOn = !rm.heatOn;
+      publishHeat(selectedRoom);
+      drawDetailView(selectedRoom);
+      return;
+    }
+    // Bouton − consigne
+    if (rm.hasHeat &&
+        tx >= DL.col1 && tx <= DL.col1+52 &&
+        ty >= DL.yHeatAdj && ty <= DL.yHeatAdj+DL.btnH) {
+      rm.heatTarget = max(10.0f, rm.heatTarget - 0.5f);
+      publishHeat(selectedRoom);
+      drawDetailView(selectedRoom);
+      return;
+    }
+    // Bouton + consigne
+    if (rm.hasHeat &&
+        tx >= DL.col1+52+90 && tx <= DL.col1+52+90+52 &&
+        ty >= DL.yHeatAdj && ty <= DL.yHeatAdj+DL.btnH) {
+      rm.heatTarget = min(30.0f, rm.heatTarget + 0.5f);
+      publishHeat(selectedRoom);
+      drawDetailView(selectedRoom);
+      return;
+    }
+    // 3 boutons volet
+    if (rm.shutterPos >= 0) {
+      int bW3 = (DL.colW - 8) / 3;
+      int vals[3] = {0, 50, 100};
+      for (int b = 0; b < 3; b++) {
+        int bx = DL.col1 + b * (bW3 + 4);
+        if (tx >= bx && tx <= bx+bW3 &&
+            ty >= DL.yShutBtns && ty <= DL.yShutBtns+DL.btnH) {
+          rm.shutterPos = vals[b];
+          publishShutter(selectedRoom);
+          drawDetailView(selectedRoom);
+          return;
+        }
+      }
+    }
+  }
+
+  // Sliders
+  if (touch.isPressed()) {
+    int tx = touch.x, ty = touch.y;
+    int bw = DL.colW - 50;
+    // Slider brightness
+    if (tx >= DL.col1 && tx <= DL.col1+bw &&
+        ty >= DL.yBriBar-4 && ty <= DL.yBriBar+DL.barH+4) {
+      int newBri = constrain((tx-DL.col1)*100/bw, 0, 100);
+      if (newBri != rm.brightness) {
+        rm.brightness = newBri;
+        if (millis()-lastSliderPub > SLIDER_PUB_MS) {
+          publishLight(selectedRoom); lastSliderPub = millis();
+        }
+        drawDetailView(selectedRoom);
+      }
+      return;
+    }
+    // Slider volet
+    if (rm.shutterPos >= 0) {
+      int sw = DL.colW - 50;
+      if (tx >= DL.col1 && tx <= DL.col1+sw &&
+          ty >= DL.yShutBar-4 && ty <= DL.yShutBar+DL.barH+4) {
+        int newPos = constrain((tx-DL.col1)*100/sw, 0, 100);
+        if (newPos != rm.shutterPos) {
+          rm.shutterPos = newPos;
+          if (millis()-lastSliderPub > SLIDER_PUB_MS) {
+            publishShutter(selectedRoom); lastSliderPub = millis();
+          }
+          drawDetailView(selectedRoom);
+        }
+        return;
+      }
+    }
+  }
+}
+
+// ─── SETUP ────────────────────────────────────────────────────
+void setup() {
+  Serial.begin(115200);
+  delay(300);
+  auto cfg = M5.config();
+  M5.begin(cfg);
+  M5.Display.setRotation(1);
+  computeLayout();
+  computeDetailLayout();
+
+  M5.Display.fillScreen(COL_BG);
+  M5.Display.setTextSize(3);
+  M5.Display.setTextColor(COL_ORANGE);
+  M5.Display.setCursor(20, SCR_H/2 - 50);
+  M5.Display.print("SMART HOME");
+  M5.Display.setTextSize(2);
+  M5.Display.setTextColor(COL_GREY);
+  M5.Display.setCursor(20, SCR_H/2);
+  M5.Display.print("Connexion WiFi...");
+
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  int r = 0;
+  while (WiFi.status() != WL_CONNECTED && r < 40) { delay(500); r++; }
+
+  configTime(3600, 3600, "pool.ntp.org");
+  wifiClient.setCACert(HIVEMQ_CA_CERT);
+
+  M5.Display.setCursor(20, SCR_H/2 + 30);
+  M5.Display.print("MQTT TLS...");
+  mqttConnect();
+
+  if (mqttConnected) {
+    M5.Display.setTextColor(COL_GREEN);
+    M5.Display.setCursor(20, SCR_H/2 + 60);
+    M5.Display.print("Connecte !");
+  }
+  delay(600);
+  drawHeader();
+  drawGrid();
+}
+
+// ─── LOOP ─────────────────────────────────────────────────────
+void loop() {
+  M5.update();
+
+  if (!mqttClient.connected()) {
+    mqttConnected = false;
+    if (millis() - lastReconnect > 5000) {
+      lastReconnect = millis();
+      mqttConnect();
+      drawHeader();
+    }
+  }
+  mqttClient.loop();
+
+  if (currentView == VIEW_GRID)   handleTouchGrid();
+  else                            handleTouchDetail();
+
+  if (needRedraw) {
+    needRedraw = false;
+    if (currentView == VIEW_GRID) drawGrid();
+    else drawDetailView(selectedRoom);
+    drawHeader();
+  }
+
+  static uint32_t lastCheck = 0;
+  if (millis() - lastCheck > 1000) {
+    lastCheck = millis();
+    bool changed = false;
+    for (int i = 0; i < NUM_ROOMS; i++) {
+      if (rooms[i].motionDetected &&
+          millis() - rooms[i].motionLastSeen > MOTION_ALERT_MS) {
+        rooms[i].motionDetected = false;
+        changed = true;
+      }
+    }
+    if (changed && currentView == VIEW_GRID) drawGrid();
+  }
+}
