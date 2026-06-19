@@ -1,0 +1,333 @@
+//  ESP32 - CUISINE : simulation + commandes Tab5 + WEB EMBARQUE
+// ------------------------------------------------------------
+//  - Publie des donnees simulees sur HiveMQ
+//  - Ecoute les commandes Tab5 pour allumer des LEDs
+//  - Sert une page web (dashboard) sur l adresse IP de l ESP
+//    pour voir les capteurs en direct + forcer l heure (demo)
+//
+//  Commandes Tab5 :
+//    smarthome/cuisine/cmd/lumiere   "1"/"0"
+//    smarthome/cuisine/cmd/cafe      "1"
+//    smarthome/cuisine/cmd/reveil    "1"
+//
+//  LEDs : GPIO 26 lumiere, 14 cafe, 33 reveil, buzzer 25, statut 2
+//  Dependances : PubSubClient (OLeary), ArduinoJson (Blanchon)
+//  Carte : ESP32 Dev Module
+// ============================================================
+ 
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <WebServer.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
+#include <math.h>
+#include <time.h>
+ 
+// ====================== CONFIG A REMPLIR ======================
+const char* WIFI_SSID = "S22";
+const char* WIFI_PASS = "qsdfghjklm1";
+ 
+const char* MQTT_HOST = "22559c6a56cd495e81b30e052711038c.s1.eu.hivemq.cloud";
+const uint16_t MQTT_PORT = 8883;                  // TLS
+const char* MQTT_USER = "pierretav";
+const char* MQTT_PASS = "Pierre78711";
+ 
+const char* PIECE = "cuisine";
+const float SEUIL_PRESENCE = 0.60;
+// =============================================================
+ 
+// ------------------------- BROCHES ---------------------------
+#define LED_LUMIERE  26
+#define LED_CAFE     14
+#define LED_REVEIL   33
+#define PIN_BUZZER   25
+#define LED_STATUS   2
+// -------------------------------------------------------------
+ 
+const char* TZ_FRANCE = "CET-1CEST,M3.5.0,M10.5.0/3";
+const unsigned long PULSE_MS = 3000;
+ 
+WiFiClientSecure netSecure;
+PubSubClient mqtt(netSecure);
+WebServer server(80);
+ 
+String tTemp, tHum, tMotion, tPred, tCmdBase;
+ 
+bool lumiereOn = false;
+int  dernierJourCafe = -1;
+int  heureForcee = -1;
+unsigned long lastPub = 0;
+unsigned long cafeOffAt = 0, reveilOffAt = 0;
+const unsigned long INTERVALLE = 5000;
+ 
+// Dernieres valeurs publiees (pour le dashboard web)
+int   lastMotion = 0;
+float lastTemp = 0, lastHum = 0, lastHeure = 0;
+bool  lastWeekend = false;
+ 
+// ============================================================
+//  HORLOGE (reelle ou forcee)
+// ============================================================
+void heureSim(float &h, int &dow, int &yday) {
+  struct tm t;
+  if (getLocalTime(&t)) {
+    dow = t.tm_wday; yday = t.tm_yday;
+    h = (heureForcee >= 0) ? (float)heureForcee : t.tm_hour + t.tm_min / 60.0f;
+  } else {
+    dow = 1; yday = 0; h = (heureForcee >= 0) ? heureForcee : 12;
+  }
+}
+ 
+// ============================================================
+//  ACTIONNEURS / LEDs
+// ============================================================
+void allumerLumiere(bool on) {
+  lumiereOn = on;
+  digitalWrite(LED_LUMIERE, on ? HIGH : LOW);
+  Serial.printf(">> Lumiere %s\n", on ? "ON" : "OFF");
+}
+void pulseCafe() {
+  digitalWrite(LED_CAFE, HIGH);
+  cafeOffAt = millis() + PULSE_MS;
+  Serial.println(">> Cafe");
+}
+void pulseReveil() {
+  digitalWrite(LED_REVEIL, HIGH);
+  reveilOffAt = millis() + PULSE_MS;
+  tone(PIN_BUZZER, 1000, 300);
+  Serial.println(">> Reveil");
+}
+ 
+// ============================================================
+//  SIMULATION DES CAPTEURS (profil cuisine)
+// ============================================================
+float bruit(float ecart) { return (random(-1000, 1000) / 1000.0f) * ecart; }
+ 
+int simulerMotion(float h, bool weekend) {
+  const float prof[][3] = {{7, 9, 0.8}, {12, 13, 0.6}, {19, 21, 0.8}};
+  float shift = weekend ? 1.5f : 0.0f;
+  float p = 0.03f;
+  for (auto &pr : prof)
+    if ((pr[0] + shift) <= h && h < (pr[1] + shift)) p = pr[2];
+  return (random(0, 1000) / 1000.0f < p) ? 1 : 0;
+}
+float simulerTemperature(float h) {
+  return 20.0f + 2.5f * sinf((h - 15) / 24.0f * 2 * PI) + bruit(0.3f);
+}
+float simulerHumidite(float h) {
+  return 55.0f - 5.0f * sinf((h - 15) / 24.0f * 2 * PI) + bruit(1.5f);
+}
+ 
+// ============================================================
+//  MQTT - reception (commandes Tab5 OU predictions IA)
+// ============================================================
+void onMqtt(char* topic, byte* payload, unsigned int len) {
+  String t = String(topic);
+  if (t.startsWith(tCmdBase)) {
+    bool on = (len > 0 && payload[0] == '1');
+    if      (t.endsWith("/lumiere")) allumerLumiere(on);
+    else if (t.endsWith("/cafe")   && on) pulseCafe();
+    else if (t.endsWith("/reveil") && on) pulseReveil();
+    return;
+  }
+  StaticJsonDocument<128> doc;
+  if (deserializeJson(doc, payload, len)) return;
+  float prob = doc["activity_prob"] | 0.0f;
+  Serial.printf("Prediction cuisine : activity_prob=%.2f\n", prob);
+  bool actif = (prob >= SEUIL_PRESENCE);
+  allumerLumiere(actif);
+  float h; int dow, yday; heureSim(h, dow, yday);
+  if (h >= 6 && h < 9 && actif && yday != dernierJourCafe) {
+    pulseCafe(); pulseReveil(); dernierJourCafe = yday;
+  }
+}
+ 
+void reconnecterMqtt() {
+  while (!mqtt.connected()) {
+    Serial.print("MQTT TLS ... ");
+    if (mqtt.connect("esp-cuisine", MQTT_USER, MQTT_PASS)) {
+      Serial.println("OK");
+      mqtt.subscribe((tCmdBase + "#").c_str(), 1);
+      mqtt.subscribe(tPred.c_str(), 1);
+      Serial.println("Abonne aux commandes Tab5 + predictions");
+    } else {
+      Serial.printf("echec rc=%d, retry 3s\n", mqtt.state());
+      delay(3000);
+    }
+  }
+}
+ 
+void publierSimulation() {
+  float h; int dow, yday; heureSim(h, dow, yday);
+  bool weekend = (dow == 0 || dow == 6);
+  int   motion = simulerMotion(h, weekend);
+  float temp   = simulerTemperature(h);
+  float hum    = simulerHumidite(h);
+ 
+  mqtt.publish(tMotion.c_str(), motion ? "1" : "0");
+  mqtt.publish(tTemp.c_str(),   String(temp, 1).c_str());
+  mqtt.publish(tHum.c_str(),    String(hum, 1).c_str());
+ 
+  lastMotion = motion; lastTemp = temp; lastHum = hum;
+  lastHeure = h; lastWeekend = weekend;
+ 
+  Serial.printf("[SIM] h=%.1f %s motion=%d temp=%.1f hum=%.1f\n",
+                h, weekend ? "(we)" : "", motion, temp, hum);
+}
+ 
+// ============================================================
+//  WEB EMBARQUE (dashboard)
+// ============================================================
+const char PAGE[] PROGMEM = R"rawliteral(
+<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP Cuisine</title>
+<style>
+body{font-family:system-ui,Arial;background:#0f1b2d;color:#e8eef6;margin:0;padding:20px}
+.wrap{max-width:520px;margin:auto}
+h1{font-size:20px;margin:0 0 4px}.sub{color:#7e93ad;font-size:13px;margin-bottom:18px}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:18px}
+.tile{background:#16263d;border-radius:12px;padding:16px;text-align:center}
+.tile .v{font-size:28px;font-weight:700}.tile .l{color:#7e93ad;font-size:12px;margin-top:4px}
+.on{color:#3ddc84}.off{color:#5a6b82}
+.bar{background:#16263d;border-radius:12px;padding:16px;margin-bottom:14px}
+.bar b{font-size:15px}.h{font-size:24px;font-weight:700;color:#5cc8ff}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+button{flex:1;min-width:56px;padding:10px;border:0;border-radius:8px;
+background:#2f7bff;color:#fff;font-size:14px;cursor:pointer}
+button.alt{background:#3a4a63}
+.st{font-size:13px}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+</style></head><body><div class="wrap">
+<h1>ESP Cuisine</h1><div class="sub">Capteurs simules publies sur HiveMQ</div>
+<div class="grid">
+<div class="tile"><div class="v" id="motion">-</div><div class="l">Presence</div></div>
+<div class="tile"><div class="v" id="temp">-</div><div class="l">Temp (C)</div></div>
+<div class="tile"><div class="v" id="hum">-</div><div class="l">Humidite (%)</div></div>
+</div>
+<div class="bar">
+<b>Heure simulee :</b> <span class="h" id="heure">-</span> <span id="we"></span>
+<div class="btns">
+<button onclick="setH(0)">0h</button>
+<button onclick="setH(7)">7h</button>
+<button onclick="setH(12)">12h</button>
+<button onclick="setH(20)">20h</button>
+<button class="alt" onclick="setH('auto')">Auto</button>
+</div>
+</div>
+<div class="bar st"><span class="dot" id="dot"></span><span id="mqtt">...</span></div>
+</div>
+<script>
+async function refresh(){
+  try{
+    const r=await fetch('/data');const d=await r.json();
+    const m=document.getElementById('motion');
+    m.textContent=d.motion?'OUI':'non';
+    m.className='v '+(d.motion?'on':'off');
+    document.getElementById('temp').textContent=d.temp.toFixed(1);
+    document.getElementById('hum').textContent=d.hum.toFixed(1);
+    document.getElementById('heure').textContent=d.heure.toFixed(1)+'h';
+    document.getElementById('we').textContent=d.weekend?'(week-end)':'';
+    document.getElementById('mqtt').textContent=d.mqtt?'MQTT connecte':'MQTT deconnecte';
+    document.getElementById('dot').style.background=d.mqtt?'#3ddc84':'#ff5a5a';
+  }catch(e){}
+}
+async function setH(h){await fetch('/hour?h='+h);refresh();}
+setInterval(refresh,2000);refresh();
+</script></body></html>
+)rawliteral";
+ 
+void handleRoot() { server.send_P(200, "text/html", PAGE); }
+ 
+void handleData() {
+  float h; int dow, yday; heureSim(h, dow, yday);
+  String j = "{";
+  j += "\"motion\":" + String(lastMotion);
+  j += ",\"temp\":" + String(lastTemp, 1);
+  j += ",\"hum\":" + String(lastHum, 1);
+  j += ",\"heure\":" + String(h, 1);
+  j += ",\"weekend\":" + String((dow == 0 || dow == 6) ? 1 : 0);
+  j += ",\"mqtt\":" + String(mqtt.connected() ? 1 : 0);
+  j += "}";
+  server.send(200, "application/json", j);
+}
+ 
+void handleHour() {
+  if (server.hasArg("h")) {
+    String h = server.arg("h");
+    if (h == "auto") { heureForcee = -1; }
+    else { int v = h.toInt(); if (v >= 0 && v <= 23) heureForcee = v; }
+  }
+  server.send(200, "text/plain", "ok");
+}
+ 
+// ============================================================
+//  CONTROLE DEMO via Moniteur Serie
+// ============================================================
+void lireCommandeDemo() {
+  if (!Serial.available()) return;
+  String s = Serial.readStringUntil('\n'); s.trim();
+  if (s.equalsIgnoreCase("auto")) { heureForcee = -1; Serial.println("Heure : AUTO"); }
+  else if (s.length()) {
+    int v = s.toInt();
+    if (v >= 0 && v <= 23) { heureForcee = v; Serial.printf("Heure forcee : %dh\n", v); }
+  }
+}
+ 
+// ============================================================
+//  SETUP / LOOP
+// ============================================================
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_LUMIERE, OUTPUT);
+  pinMode(LED_CAFE, OUTPUT);
+  pinMode(LED_REVEIL, OUTPUT);
+  pinMode(PIN_BUZZER, OUTPUT);
+  pinMode(LED_STATUS, OUTPUT);
+  digitalWrite(LED_LUMIERE, LOW);
+  digitalWrite(LED_CAFE, LOW);
+  digitalWrite(LED_REVEIL, LOW);
+  randomSeed(esp_random());
+ 
+  tTemp    = "smarthome/" + String(PIECE) + "/temperature";
+  tHum     = "smarthome/" + String(PIECE) + "/humidity";
+  tMotion  = "smarthome/" + String(PIECE) + "/motion";
+  tPred    = "smarthome/predictions/" + String(PIECE);
+  tCmdBase = "smarthome/" + String(PIECE) + "/cmd/";
+ 
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.print("WiFi ");
+  while (WiFi.status() != WL_CONNECTED) { delay(400); Serial.print("."); }
+  Serial.printf(" OK : %s\n", WiFi.localIP().toString().c_str());
+  configTzTime(TZ_FRANCE, "pool.ntp.org");
+ 
+  netSecure.setInsecure();
+  mqtt.setServer(MQTT_HOST, MQTT_PORT);
+  mqtt.setCallback(onMqtt);
+  mqtt.setBufferSize(512);
+ 
+  server.on("/", handleRoot);
+  server.on("/data", handleData);
+  server.on("/hour", handleHour);
+  server.begin();
+  Serial.printf("Dashboard web : http://%s\n", WiFi.localIP().toString().c_str());
+ 
+  Serial.println("\n=== ESP CUISINE (sim + Tab5 + web) ===");
+}
+ 
+void loop() {
+  if (!mqtt.connected()) reconnecterMqtt();
+  mqtt.loop();
+  server.handleClient();
+  lireCommandeDemo();
+  digitalWrite(LED_STATUS, mqtt.connected() ? HIGH : LOW);
+ 
+  unsigned long now = millis();
+  if (cafeOffAt   && now > cafeOffAt)   { digitalWrite(LED_CAFE, LOW);   cafeOffAt = 0; }
+  if (reveilOffAt && now > reveilOffAt) { digitalWrite(LED_REVEIL, LOW); reveilOffAt = 0; }
+ 
+  if (now - lastPub >= INTERVALLE) {
+    lastPub = now;
+    publierSimulation();
+  }
+}
