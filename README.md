@@ -58,7 +58,7 @@ smart-home-ia-exploitation/
 ├── rapport/             # Rapport (ma partie)
 ├── .env.example         # Modèle d'identifiants
 ├── Programme tab5
-├── Programme test communication entre la tab5 et l'esp32 à l'aide d'une led
+├── Programme test esp32 #test communication entre la tab5 et l'esp32 à l'aide d'une led
 ├── .gitignore
 └── LICENSE
 ```
