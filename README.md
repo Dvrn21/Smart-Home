@@ -56,6 +56,7 @@ smart-home-ia-exploitation/
 ├── .env.example         # Modèle d'identifiants
 ├── Programme tab5
 ├── Programme test esp32 #test communication entre la tab5 et l'esp32 à l'aide d'une led
+├── Programme test ESP32  #CUISINE : simulation + commandes Tab5 + WEB EMBARQUE
 ├── .gitignore
 └── LICENSE
 ```
