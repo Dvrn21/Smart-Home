@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Smart Home — Poste d'exploitation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+<style>
+:root{--ink:#0B1220;--ink2:#0E1726;--panel:#10203A;--line:#1E3A5F;--line2:#2D547F;--hair:#16293f;
+--paper:#DCE7F5;--muted:#7E9AC0;--dim:#52729c;--signal:#F4A52B;--cyan:#38D6E0;--ok:#46D38B;--warn:#F2545B;
+--mono:'JetBrains Mono',ui-monospace,monospace;--disp:'Space Grotesk',system-ui,sans-serif;--body:'Inter',system-ui,sans-serif;}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:linear-gradient(180deg,#0B1220,#0A0F1A);color:var(--paper);font-family:var(--body);background-attachment:fixed}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;
+background-image:linear-gradient(#13243B 1px,transparent 1px),linear-gradient(90deg,#13243B 1px,transparent 1px);
+background-size:26px 26px;mask-image:radial-gradient(circle at 50% 40%,#000 50%,transparent 95%)}
+.app{display:grid;grid-template-columns:248px 1fr;min-height:100vh;position:relative;z-index:1}
+.rail{border-right:1px solid var(--hair);padding:22px 16px;display:flex;flex-direction:column;gap:6px;
+background:linear-gradient(180deg,rgba(16,32,58,.6),rgba(11,18,32,.2))}
+.brand{display:flex;align-items:center;gap:11px;padding:6px 8px 18px}
+.brand .dot{width:11px;height:11px;border-radius:50%;background:var(--cyan);box-shadow:0 0 14px var(--cyan)}
+.brand b{font-family:var(--disp);font-weight:700;font-size:15px}
+.brand span{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:3px;color:var(--dim);margin-top:2px}
+.nav{display:flex;flex-direction:column;gap:3px;margin-top:4px}
+.nav button{all:unset;cursor:pointer;display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:9px;
+color:var(--muted);font-family:var(--mono);font-size:12.5px;transition:.18s}
+.nav button:hover{background:var(--panel);color:var(--paper)}
+.nav button.on{background:linear-gradient(90deg,rgba(56,214,224,.14),transparent);color:var(--paper);box-shadow:inset 2px 0 0 var(--cyan)}
+.nav .ico{width:18px;text-align:center}
+.rail .foot{margin-top:auto;font-family:var(--mono);font-size:10px;color:var(--dim);padding:10px 8px;line-height:1.6}
+.main{display:flex;flex-direction:column;min-width:0}
+.top{display:flex;align-items:center;gap:18px;padding:16px 26px;border-bottom:1px solid var(--hair);
+background:rgba(10,15,26,.6);backdrop-filter:blur(6px);position:sticky;top:0;z-index:5}
+.top h1{font-family:var(--disp);font-size:17px;font-weight:600;margin:0}
+.top h1 small{display:block;font-family:var(--mono);font-size:10px;letter-spacing:3px;color:var(--dim);font-weight:400;margin-top:3px}
+.spacer{flex:1}
+.kpi{display:flex;gap:20px;font-family:var(--mono)}
+.kpi div{font-size:9.5px;letter-spacing:1.2px;color:var(--dim)}
+.kpi div b{display:block;font-size:17px;color:var(--paper);letter-spacing:0;margin-top:2px}
+.kpi div b.cy{color:var(--cyan)}.kpi div b.sg{color:var(--signal)}
+.pill{font-family:var(--mono);font-size:11px;letter-spacing:1px;padding:7px 13px;border-radius:20px;border:1px solid var(--line2);
+display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--panel);color:var(--muted)}
+.pill .led{width:8px;height:8px;border-radius:50%;background:var(--warn);box-shadow:0 0 10px var(--warn)}
+.pill.live .led{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+.modebtn.away{border-color:var(--signal);color:var(--signal)}
+.page{display:none;padding:22px}.page.on{display:block}
+.grid{display:grid;gap:18px}
+.card{background:linear-gradient(180deg,rgba(16,32,58,.55),rgba(13,21,36,.55));border:1px solid var(--hair);border-radius:14px;padding:18px}
+.card h3{margin:0 0 14px;font-family:var(--mono);font-size:11px;letter-spacing:2.5px;color:var(--muted);font-weight:500;display:flex;align-items:center;gap:9px}
+.card h3::before{content:"";width:6px;height:6px;background:var(--cyan);border-radius:1px;box-shadow:0 0 8px var(--cyan)}
+#plan{width:100%;height:auto;display:block}#plan .room-hit{fill:transparent;cursor:pointer}
+.overview{grid-template-columns:1.7fr .9fr}
+.feed{display:flex;flex-direction:column;gap:9px;max-height:520px;overflow:auto}
+.event{font-family:var(--mono);font-size:11.5px;display:flex;gap:10px;align-items:baseline;padding:9px 11px;border-radius:8px;background:var(--ink2);border:1px solid var(--hair)}
+.event .t{color:var(--dim);font-size:10px;min-width:46px}.event.alert{border-color:var(--warn);background:rgba(242,84,91,.08)}
+.event .tag{color:var(--cyan)}.event.alert .tag{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+th{text-align:left;color:var(--dim);font-weight:500;font-size:10px;padding:9px 12px;border-bottom:1px solid var(--hair)}
+td{padding:11px 12px;border-bottom:1px solid var(--hair)}tr:hover td{background:rgba(56,214,224,.04)}
+.badge{font-size:10px;padding:3px 9px;border-radius:20px}.b-on{background:rgba(70,211,139,.15);color:var(--ok)}
+.b-off{background:rgba(126,154,192,.12);color:var(--muted)}
+.form{display:grid;grid-template-columns:repeat(2,1fr);gap:13px}
+label{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;color:var(--dim);display:block;margin-bottom:6px}
+input,select{width:100%;background:var(--ink2);border:1px solid var(--line);color:var(--paper);border-radius:8px;padding:10px 12px;font-family:var(--mono);font-size:12.5px}
+input:focus,select:focus{outline:none;border-color:var(--cyan)}
+.btn{all:unset;cursor:pointer;text-align:center;font-family:var(--mono);font-size:12px;letter-spacing:1.5px;padding:11px 18px;border-radius:9px;background:var(--cyan);color:#04161a;font-weight:700}
+.btn:hover{filter:brightness(1.1)}.btn.ghost{background:transparent;border:1px solid var(--line2);color:var(--muted);font-weight:500}
+.full{grid-column:1/-1}
+.bars{display:flex;flex-direction:column;gap:11px}
+.bar{display:grid;grid-template-columns:120px 1fr 50px;align-items:center;gap:13px;font-family:var(--mono);font-size:12px}
+.bar .track{height:9px;background:var(--ink2);border-radius:6px;overflow:hidden;border:1px solid var(--hair)}
+.bar .fill{height:100%;background:linear-gradient(90deg,var(--cyan),#7ef0f7);border-radius:6px;transition:width .6s}
+.bar .v{text-align:right;color:var(--cyan)}
+.neural{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.metric{font-family:var(--mono);text-align:center;padding:16px;background:var(--ink2);border-radius:12px;border:1px solid var(--hair)}
+.metric b{display:block;font-size:28px;margin-bottom:5px}.metric b.cy{color:var(--cyan)}.metric b.sg{color:var(--signal)}
+.metric span{font-size:9.5px;letter-spacing:2px;color:var(--dim)}
+.modal{position:fixed;inset:0;background:rgba(5,9,16,.7);display:none;align-items:center;justify-content:center;z-index:20;backdrop-filter:blur(3px)}
+.modal.on{display:flex}.modal .box{width:460px;max-width:92vw;background:var(--panel);border:1px solid var(--line2);border-radius:16px;padding:24px}
+.modal h2{font-family:var(--disp);margin:0 0 4px;font-size:18px}.modal p{color:var(--muted);font-size:12px;margin:0 0 18px}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel);border:1px solid var(--cyan);color:var(--paper);padding:12px 20px;border-radius:10px;font-family:var(--mono);font-size:12px;opacity:0;transition:.3s;z-index:30}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.hint{font-family:var(--mono);font-size:10.5px;color:var(--dim);line-height:1.7}
+@media(max-width:900px){.app{grid-template-columns:1fr}.rail{flex-direction:row;flex-wrap:wrap}.overview,.form,.neural{grid-template-columns:1fr}.kpi{display:none}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><div class="dot"></div><div><b>SMART HOME</b><span>EXPLOITATION · IoT</span></div></div>
+    <nav class="nav">
+      <button class="on" data-page="plan"><span class="ico">▣</span> Plan</button>
+      <button data-page="capteurs"><span class="ico">◈</span> Capteurs</button>
+      <button data-page="donnees"><span class="ico">≋</span> Données</button>
+      <button data-page="ia"><span class="ico">⟁</span> IA · Prédictions</button>
+    </nav>
+    <div class="foot">v2.0 · 8 pièces<br>flux : smarthome/#<br><span id="clock">--:--:--</span></div>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <h1 id="ptitle">Plan d'exploitation<small>VUE D'ENSEMBLE</small></h1>
+      <div class="spacer"></div>
+      <div class="kpi">
+        <div>TEMP MOY<b class="sg" id="k-temp">--°</b></div>
+        <div>OCCUPÉES<b id="k-occ">--</b></div>
+        <div>FENÊTRES<b class="cy" id="k-win">--</b></div>
+        <div>ALERTES<b id="k-alerts">0</b></div>
+      </div>
+      <div class="pill modebtn" id="modeBtn">⌂ <span id="modeTxt">PRÉSENT</span></div>
+      <div class="pill" id="connBtn"><span class="led"></span><span id="connTxt">DÉMO</span></div>
+    </header>
+
+    <section class="page on" id="page-plan">
+      <div class="grid overview">
+        <div class="card"><h3>Plan de la maison — temps réel</h3><svg id="plan" viewBox="0 0 920 660"></svg>
+          <p class="hint" style="margin-top:10px">Par pièce : <b style="color:var(--paper)">T°</b> · pastilles <b style="color:var(--signal)">P</b> présence · <b style="color:var(--ok)">L</b> lumière · <b style="color:var(--signal)">F</b> fenêtre ouverte. Clique une pièce pour le détail.</p>
+        </div>
+        <div class="card"><h3>Journal d'événements</h3><div class="feed" id="feed"></div></div>
+      </div>
+    </section>
+
+    <section class="page" id="page-capteurs">
+      <div class="grid" style="grid-template-columns:1fr">
+        <div class="card"><h3>Ajouter un capteur</h3>
+          <div class="form">
+            <div><label>PIÈCE</label><select id="f-piece"></select></div>
+            <div><label>TYPE</label><select id="f-type">
+              <option value="temperature">Température</option>
+              <option value="presence">Présence (PIR)</option>
+              <option value="light">Lumière</option>
+              <option value="window">Fenêtre (ouvert/fermé)</option>
+              <option value="custom">Autre…</option>
+            </select></div>
+            <div><label>IDENTIFIANT</label><input id="f-id" placeholder="ex. capteur_salon_01"></div>
+            <div><label>TOPIC MQTT</label><input id="f-topic"></div>
+            <div class="full" style="display:flex;gap:10px;justify-content:flex-end">
+              <button class="btn ghost" id="f-reset">Réinitialiser</button>
+              <button class="btn" id="f-add">Ajouter le capteur</button></div>
+          </div>
+          <p class="hint" style="margin-top:14px">L'ajout publie la config sur <b>smarthome/config/sensors</b> (retenu) et abonne le poste au topic.</p>
+        </div>
+        <div class="card"><h3>Capteurs déclarés</h3>
+          <table><thead><tr><th>Identifiant</th><th>Pièce</th><th>Type</th><th>Topic</th><th>Valeur</th><th>État</th></tr></thead><tbody id="sensorTable"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="page" id="page-donnees">
+      <div class="grid" style="grid-template-columns:1fr 1fr">
+        <div class="card full" style="grid-column:1/-1"><h3>Température par pièce</h3><canvas id="chTemp" height="120"></canvas></div>
+        <div class="card"><h3>Pièces occupées</h3><canvas id="chOcc" height="150"></canvas></div>
+        <div class="card"><h3>Fenêtres ouvertes</h3><canvas id="chWin" height="150"></canvas></div>
+      </div>
+    </section>
+
+    <section class="page" id="page-ia">
+      <div class="grid" style="grid-template-columns:1fr 1fr">
+        <div class="card"><h3>Probabilité de présence prédite — par pièce</h3><div class="bars" id="iaBars"></div>
+          <p class="hint" style="margin-top:14px">Source : modèles Colab publiés sur <b>smarthome/predictions/&lt;pièce&gt;</b>.</p></div>
+        <div class="card"><h3>Réseau de neurones — synthèse</h3>
+          <div class="neural">
+            <div class="metric"><b class="cy" id="m-acc">--</b><span>ACCURACY MOY</span></div>
+            <div class="metric"><b class="sg" id="m-tnext">--°</b><span>TEMP PRÉVUE SALON</span></div>
+            <div class="metric"><b id="m-models">8</b><span>MODÈLES ACTIFS</span></div></div>
+          <h3 style="margin-top:22px">Automatisations suggérées</h3><div class="feed" id="autoFeed"></div></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="modal" id="modal"><div class="box">
+  <h2>Connexion HiveMQ</h2><p>Identifiants pré-remplis. Décoche « Mode démo » puis Applique pour passer en données réelles.</p>
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <div><label>HÔTE WSS</label><input id="c-host"></div>
+    <div style="display:flex;gap:12px"><div style="flex:1"><label>UTILISATEUR</label><input id="c-user"></div>
+      <div style="flex:1"><label>MOT DE PASSE</label><input id="c-pass" type="password"></div></div>
+    <label style="display:flex;align-items:center;gap:9px;color:var(--muted);font-size:12px;letter-spacing:0">
+      <input type="checkbox" id="c-demo" checked style="width:auto"> Mode démo (données simulées)</label>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px">
+      <button class="btn ghost" id="c-cancel">Fermer</button><button class="btn" id="c-connect">Appliquer</button></div>
+  </div>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== CONNEXION HIVEMQ (pré-remplie) =====
+const HMQ = {host:"wss://VOTRE-CLUSTER.s1.eu.hivemq.cloud:8884/mqtt", user:"VOTRE_USER", pass:"VOTRE_MOT_DE_PASSE"};
+
+// ===== PLAN : 8 pièces (mêmes emplacements que ton plan) =====
+const ROOMS=[
+ {id:"salon",name:"Salon",x:88,y:76,w:322,h:250,color:"#3FB868",lx:240,ly:300,kind:"int"},
+ {id:"cuisine",name:"Cuisine",x:88,y:330,w:160,h:288,color:"#D9C32B",lx:168,ly:470,kind:"int"},
+ {id:"sdb",name:"Salle de Bain",x:252,y:330,w:158,h:288,color:"#2E9BE6",lx:331,ly:446,kind:"int"},
+ {id:"chparents",name:"Ch. Parents",x:456,y:76,w:268,h:250,color:"#9B6BF0",lx:590,ly:300,kind:"int"},
+ {id:"chenf1",name:"Ch. Enf. 1",x:728,y:76,w:144,h:250,color:"#E8881A",lx:800,ly:300,kind:"int"},
+ {id:"chenf2",name:"Ch. Enf. 2",x:456,y:330,w:268,h:288,color:"#16C9C0",lx:590,ly:556,kind:"int"},
+ {id:"garage",name:"Garage",x:728,y:330,w:144,h:288,color:"#E2433B",lx:800,ly:556,kind:"int"},
+ {id:"terrasse",name:"Terrasse",x:24,y:160,w:52,h:166,color:"#3FB868",lx:50,ly:243,kind:"ext"},
+];
+const FURN=[
+ ["#3FB868",110,100,118,56,"Canapé"],["#3FB868",250,100,72,56,"TV"],["#3FB868",122,184,92,50,"Table basse"],
+ ["#D9C32B",100,344,132,26,"Plan de travail"],["#D9C32B",112,498,58,50,"Table"],
+ ["#2E9BE6",268,348,112,42,"Baignoire"],["#2E9BE6",270,500,40,40,"WC"],["#2E9BE6",324,500,52,40,"Douche"],
+ ["#9B6BF0",494,94,206,84,"Lit double"],["#9B6BF0",480,214,72,50,"Bureau"],["#9B6BF0",634,214,68,50,"Armoire"],
+ ["#E8881A",744,94,116,78,"Lit simple"],["#E8881A",744,196,58,44,"Bureau"],
+ ["#16C9C0",494,346,206,78,"Lit simple"],["#16C9C0",490,452,76,52,"Bureau"],["#16C9C0",598,452,82,52,"Armoire"],
+ ["#E2433B",744,346,112,52,"Voiture"],["#E2433B",744,422,56,40,"Établi"],
+];
+const WINDOWS=[
+ {r:"salon",x1:150,y1:76,x2:205,y2:76},{r:"salon",x1:245,y1:76,x2:300,y2:76},{r:"salon",x1:88,y1:200,x2:88,y2:265},
+ {r:"chparents",x1:515,y1:76,x2:585,y2:76},{r:"chparents",x1:625,y1:76,x2:695,y2:76},
+ {r:"chenf1",x1:760,y1:76,x2:840,y2:76},{r:"cuisine",x1:120,y1:618,x2:180,y2:618},
+ {r:"sdb",x1:300,y1:618,x2:360,y2:618},{r:"chenf2",x1:520,y1:618,x2:605,y2:618},{r:"garage",x1:760,y1:618,x2:840,y2:618},
+];
+const PIR={salon:[372,300],sdb:[392,360],chparents:[706,300],chenf1:[742,300],garage:[856,528],terrasse:[50,192]};
+const PROFILS={salon:[[18,23]],cuisine:[[7,9],[12,13],[19,21]],sdb:[[7,8],[22,23]],chparents:[[22,24],[0,7]],
+ chenf1:[[21,23],[6,8]],chenf2:[[21,23],[6,8]],garage:[[8,9],[18,19]],terrasse:[[12,16]]};
+
+const STATE={},PRED={},SENSORS=[],FEED=[],AUTO=[];
+let MODE="present",demoTimer=null,mqttClient=null,alerts=0,selected=null;
+ROOMS.forEach(r=>{STATE[r.id]={temp:20+Math.random()*2,presence:0,light:0,window:0};PRED[r.id]={activity_prob:0};});
+
+// ===== CONSTRUCTION DU PLAN =====
+function buildPlan(){
+  const NS="http://www.w3.org/2000/svg";const svg=document.getElementById("plan");
+  let h=`<defs><pattern id="g" width="22" height="22" patternUnits="userSpaceOnUse"><path d="M22 0 L0 0 0 22" fill="none" stroke="#13243B" stroke-width=".5"/></pattern>
+  <filter id="glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+  <rect width="920" height="660" fill="url(#g)"/>
+  <text x="460" y="32" text-anchor="middle" fill="#E8881A" font-size="19" font-weight="600" font-family="var(--disp)">PLAN MAISON — Smart Home IoT</text>
+  <rect x="410" y="76" width="46" height="542" rx="6" fill="#5C7BA6" fill-opacity=".06" stroke="#5C7BA6" stroke-width="1.2"/>
+  <text x="433" y="350" fill="#7E9AC0" font-size="12" letter-spacing="3" text-anchor="middle" transform="rotate(-90 433 350)">COULOIR</text>`;
+  // pièces
+  ROOMS.forEach(r=>{h+=`<rect x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="8" fill="${r.color}" fill-opacity="${r.kind==='ext'?0:0.10}" stroke="${r.color}" stroke-width="2.4" ${r.kind==='ext'?'stroke-dasharray="8 6"':''}/>`;});
+  // meubles
+  FURN.forEach(([c,x,y,w,wh,lab])=>{h+=`<rect x="${x}" y="${y}" width="${w}" height="${wh}" rx="5" fill="${c}" fill-opacity=".12" stroke="${c}" stroke-width="1.3"/>
+    <text x="${x+w/2}" y="${y+wh/2+4}" text-anchor="middle" fill="${c}" font-size="10">${lab}</text>`;});
+  h+=`<circle cx="120" cy="402" r="16" fill="#D9C32B" fill-opacity=".12" stroke="#D9C32B" stroke-width="1.3"/><text x="120" y="406" text-anchor="middle" fill="#D9C32B" font-size="9">Évier</text>`;
+  // fenêtres
+  WINDOWS.forEach((wd,i)=>{h+=`<line id="win${i}" x1="${wd.x1}" y1="${wd.y1}" x2="${wd.x2}" y2="${wd.y2}" stroke="#7FB2F0" stroke-width="6" stroke-linecap="round"/>`;});
+  // pir
+  Object.entries(PIR).forEach(([id,[x,y]])=>{h+=`<circle id="${id}-pir" cx="${x}" cy="${y}" r="8" fill="#5C7BA6"/><text x="${x}" y="${y+3}" text-anchor="middle" fill="#0E1526" font-size="8" font-weight="700">PIR</text>`;});
+  // infos live + labels + zone cliquable
+  ROOMS.forEach(r=>{
+    if(r.kind==="ext"){
+      h+=`<text x="${r.lx}" y="${r.ly}" text-anchor="middle" fill="${r.color}" font-size="11" font-weight="600" writing-mode="tb" transform="rotate(0)">${r.name}</text>
+      <text id="${r.id}-temp" x="${r.lx}" y="${r.ly+150}" text-anchor="middle" fill="${r.color}" font-size="13" font-weight="600">--°</text>`;
+    } else {
+      const px=r.lx-34;const py=r.ly+12;
+      h+=`<text x="${r.lx}" y="${r.ly-24}" text-anchor="middle" fill="${r.color}" font-size="15" font-weight="600">${r.name}</text>
+      <text id="${r.id}-temp" x="${r.lx}" y="${r.ly+2}" text-anchor="middle" fill="${r.color}" font-size="22" font-weight="700">--°</text>`;
+      [["P",0],["L",24],["F",48]].forEach(([ltr,dx])=>{
+        h+=`<rect id="${r.id}-p${ltr}" x="${px+dx}" y="${py}" width="20" height="15" rx="4" fill="#3A5B86"/><text x="${px+dx+10}" y="${py+11}" text-anchor="middle" fill="#0E1526" font-size="10" font-weight="700">${ltr}</text>`;
+      });
+    }
+    h+=`<rect class="room-hit" data-room="${r.id}" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"/>`;
+  });
+  svg.innerHTML=h;
+  svg.querySelectorAll(".room-hit").forEach(z=>z.addEventListener("click",()=>selectRoom(z.dataset.room)));
+}
+function selectRoom(id){selected=id;const r=ROOMS.find(x=>x.id===id),s=STATE[id];
+  logEvent(r.name,`T ${s.temp.toFixed(1)}° · ${s.presence?'occupé':'vide'} · lumière ${s.light?'ON':'OFF'} · fenêtre ${s.window?'ouverte':'fermée'}`);}
+
+// ===== RENDU =====
+function paint(){
+  let sum=0,occ=0,win=0;
+  ROOMS.forEach(r=>{const s=STATE[r.id];sum+=s.temp;if(s.presence)occ++;if(s.window)win++;
+    document.getElementById(r.id+"-temp").textContent=s.temp.toFixed(1)+"°";
+    const pir=document.getElementById(r.id+"-pir");
+    if(pir){pir.setAttribute("fill",s.presence?"#F4A52B":"#5C7BA6");pir.setAttribute("filter",s.presence?"url(#glow)":"");}
+    const pP=document.getElementById(r.id+"-pP"),pL=document.getElementById(r.id+"-pL"),pF=document.getElementById(r.id+"-pF");
+    if(pP)pP.setAttribute("fill",s.presence?"#F4A52B":"#3A5B86");
+    if(pL)pL.setAttribute("fill",s.light?"#46D38B":"#3A5B86");
+    if(pF)pF.setAttribute("fill",s.window?"#F4A52B":"#3A5B86");
+  });
+  WINDOWS.forEach((wd,i)=>{const open=STATE[wd.r]&&STATE[wd.r].window;
+    const ln=document.getElementById("win"+i);if(ln)ln.setAttribute("stroke",open?"#F4A52B":"#7FB2F0");});
+  document.getElementById("k-temp").textContent=(sum/ROOMS.length).toFixed(1)+"°";
+  document.getElementById("k-occ").textContent=occ+"/"+ROOMS.length;
+  document.getElementById("k-win").textContent=win;
+  document.getElementById("k-alerts").textContent=alerts;
+}
+function logEvent(tag,msg,a=false){const t=new Date().toTimeString().slice(0,8);FEED.unshift({t,tag,msg,a});if(FEED.length>40)FEED.pop();
+  document.getElementById("feed").innerHTML=FEED.map(e=>`<div class="event ${e.a?'alert':''}"><span class="t">${e.t}</span><span class="tag">${e.tag}</span><span>${e.msg}</span></div>`).join("");}
+function logAuto(m){AUTO.unshift(m);if(AUTO.length>12)AUTO.pop();
+  document.getElementById("autoFeed").innerHTML=AUTO.map(x=>`<div class="event"><span class="tag">AUTO</span><span>${x}</span></div>`).join("");}
+function renderSensors(){
+  document.getElementById("sensorTable").innerHTML=SENSORS.length?SENSORS.map(s=>{const st=STATE[s.piece]||{};let v="—";
+    if(s.type==="temperature")v=(st.temp??0).toFixed(1)+"°C";else if(s.type==="presence")v=st.presence?"détecté":"—";
+    else if(s.type==="light")v=st.light?"ON":"OFF";else if(s.type==="window")v=st.window?"ouverte":"fermée";
+    const on=s.type==="presence"?st.presence:s.type==="window"?st.window:true;
+    return `<tr><td>${s.id}</td><td>${s.pieceName}</td><td>${s.type}</td><td style="color:var(--dim)">${s.topic}</td><td style="color:var(--cyan)">${v}</td><td><span class="badge ${on?'b-on':'b-off'}">${on?'actif':'idle'}</span></td></tr>`;
+  }).join(""):`<tr><td colspan="6" style="color:var(--dim);text-align:center;padding:24px">Aucun capteur. Ajoute-en un ci-dessus.</td></tr>`;
+}
+
+// ===== CHARTS =====
+let chTemp,chOcc,chWin;const HL=30;const hist={labels:[],temp:{},occ:[],win:[]};
+ROOMS.forEach(r=>hist.temp[r.id]=[]);
+function initCharts(){if(typeof Chart==="undefined")return;
+  Chart.defaults.color="#7E9AC0";Chart.defaults.font.family="'JetBrains Mono',monospace";Chart.defaults.font.size=10;
+  const grid={color:"#16293f"};
+  chTemp=new Chart(document.getElementById("chTemp"),{type:"line",
+    data:{labels:hist.labels,datasets:ROOMS.map(r=>({label:r.name,data:hist.temp[r.id],borderColor:r.color,backgroundColor:"transparent",borderWidth:1.8,pointRadius:0,tension:.35}))},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{boxWidth:10,padding:7,font:{size:9}}}},scales:{x:{grid,ticks:{maxTicksLimit:6}},y:{grid}}}});
+  const bar=(cid,key,col)=>new Chart(document.getElementById(cid),{type:"bar",
+    data:{labels:hist.labels,datasets:[{data:hist[key],backgroundColor:col}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid,ticks:{maxTicksLimit:6}},y:{grid,beginAtZero:true}}}});
+  chOcc=bar("chOcc","occ","#F4A52B");chWin=bar("chWin","win","#7FB2F0");
+}
+function pushHist(){const t=new Date().toTimeString().slice(0,5);hist.labels.push(t);if(hist.labels.length>HL)hist.labels.shift();
+  let occ=0,win=0;ROOMS.forEach(r=>{const s=STATE[r.id];hist.temp[r.id].push(+s.temp.toFixed(1));if(hist.temp[r.id].length>HL)hist.temp[r.id].shift();if(s.presence)occ++;if(s.window)win++;});
+  hist.occ.push(occ);hist.win.push(win);if(hist.occ.length>HL){hist.occ.shift();hist.win.shift();}
+  if(chTemp){chTemp.update("none");chOcc.update("none");chWin.update("none");}}
+
+// ===== IA =====
+function renderIA(){document.getElementById("iaBars").innerHTML=ROOMS.map(r=>{const p=Math.round((PRED[r.id]?.activity_prob||0)*100);
+  return `<div class="bar"><span>${r.name}</span><div class="track"><div class="fill" style="width:${p}%"></div></div><span class="v">${p}%</span></div>`;}).join("");
+  const tn=PRED.salon?.temp_next;if(tn!=null)document.getElementById("m-tnext").textContent=tn.toFixed(1)+"°";}
+
+// ===== AUTOMATISATION (miroir des règles) =====
+function autoRules(){const h=new Date().getHours();
+  ROOMS.forEach(r=>{const s=STATE[r.id];if(s.presence&&(h<7||h>=19)&&!s.light){s.light=1;logAuto(`Éclairage ON — ${r.name} (présence, nuit)`);}});
+  if(MODE==="away"&&(STATE.garage.presence||STATE.terrasse.presence)){alerts++;logEvent("SÉCURITÉ","Mouvement en mode absent",true);logAuto("Alerte intrusion → notification");}
+  if(MODE==="away"){ROOMS.forEach(r=>{if(STATE[r.id].window){logAuto(`Fenêtre ouverte en mode absent — ${r.name}`);}});}
+  if((PRED.cuisine?.activity_prob||0)>0.6&&h>=6&&h<=9)logAuto("Routine café cuisine → préchauffage");
+  const tn=PRED.salon?.temp_next;if(tn!=null&&tn<19)logAuto(`Chauffage anticipé salon (prév. ${tn.toFixed(1)}°)`);}
+
+// ===== DÉMO =====
+function isActive(id){const h=new Date().getHours()+new Date().getMinutes()/60;return (PROFILS[id]||[]).some(([a,b])=>h>=a&&h<b);}
+function demoTick(){const h=new Date().getHours()+new Date().getMinutes()/60;
+  ROOMS.forEach(r=>{const s=STATE[r.id];
+    const base=20+2.5*Math.sin((h-15)/24*2*Math.PI)+(r.id==="sdb"?2:0)-(r.id==="garage"||r.id==="terrasse"?3:0);
+    s.temp+=(base-s.temp)*0.1+(Math.random()-.5)*0.15;
+    const pA=isActive(r.id)?0.6:0.05;s.presence=Math.random()<pA?1:0;
+    const dark=(h<7.5||h>=19);s.light=(s.presence&&dark)||Math.random()<0.03?1:0;
+    const jour=10<=h&&h<18;const po=jour&&["salon","chparents","chenf1","chenf2"].includes(r.id)?0.6:(jour&&r.id==="cuisine"?0.2:0.03);
+    if(Math.random()<0.25)s.window=Math.random()<po?1:0;
+    PRED[r.id].activity_prob=Math.min(1,Math.max(0,pA+(Math.random()-.5)*0.2));
+  });
+  PRED.salon.temp_next=STATE.salon.temp+(Math.random()-.5);
+  document.getElementById("m-acc").textContent=(87+Math.random()*6).toFixed(1)+"%";
+  refresh();
+}
+function refresh(){paint();pushHist();renderIA();renderSensors();autoRules();}
+
+// ===== MQTT =====
+function connectMqtt(host,user,pass){if(mqttClient){try{mqttClient.end(true);}catch(e){}}setConn(false,"CONNEXION…");
+  try{mqttClient=mqtt.connect(host,{username:user,password:pass,connectTimeout:6000,reconnectPeriod:4000});
+    mqttClient.on("connect",()=>{setConn(true,"EN LIGNE");mqttClient.subscribe("smarthome/#");logEvent("MQTT","Connecté à HiveMQ");});
+    mqttClient.on("error",e=>{setConn(false,"ERREUR");logEvent("MQTT",String(e.message||e),true);});
+    mqttClient.on("close",()=>setConn(false,"DÉCONNECTÉ"));
+    mqttClient.on("message",(t,p)=>onMqtt(t,p.toString()));
+  }catch(e){setConn(false,"ERREUR");}}
+function onMqtt(topic,msg){const p=topic.split("/");try{
+  if(p[1]==="predictions"){Object.assign(PRED[p[2]]||(PRED[p[2]]={}),JSON.parse(msg));renderIA();return;}
+  if(p[0]==="smarthome"&&STATE[p[1]]){const s=STATE[p[1]],k=p[2];let v;try{v=JSON.parse(msg);}catch{v=parseFloat(msg);}
+    if(k==="temperature")s.temp=+v;else if(k==="presence")s.presence=+v?1:0;
+    else if(k==="light")s.light=+v?1:0;else if(k==="window")s.window=+v?1:0;refresh();}
+}catch(e){}}
+function setConn(live,txt){document.getElementById("connBtn").classList.toggle("live",live);document.getElementById("connTxt").textContent=txt;}
+
+// ===== AJOUT CAPTEUR =====
+function fillPieces(){document.getElementById("f-piece").innerHTML=ROOMS.map(r=>`<option value="${r.id}">${r.name}</option>`).join("");}
+function suggestTopic(){document.getElementById("f-topic").value=`smarthome/${document.getElementById("f-piece").value}/${document.getElementById("f-type").value}`;}
+function addSensor(){const piece=document.getElementById("f-piece").value,type=document.getElementById("f-type").value;
+  const id=document.getElementById("f-id").value.trim()||`${type}_${piece}_${SENSORS.length+1}`;
+  const topic=document.getElementById("f-topic").value.trim()||`smarthome/${piece}/${type}`;
+  const pieceName=(ROOMS.find(r=>r.id===piece)||{}).name||piece;
+  SENSORS.push({id,piece,pieceName,type,topic});renderSensors();
+  if(mqttClient&&mqttClient.connected){mqttClient.subscribe(topic);mqttClient.publish("smarthome/config/sensors",JSON.stringify(SENSORS),{retain:true});}
+  toast(`Capteur « ${id} » ajouté`);document.getElementById("f-id").value="";}
+function toast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("on");setTimeout(()=>t.classList.remove("on"),2600);}
+
+// ===== NAV =====
+const TIT={plan:["Plan d'exploitation","VUE D'ENSEMBLE"],capteurs:["Capteurs","RÉSEAU & CONFIGURATION"],donnees:["Données","TÉLÉMÉTRIE"],ia:["IA · Prédictions","RÉSEAU DE NEURONES"]};
+document.querySelectorAll(".nav button").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll(".nav button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
+  const pg=b.dataset.page;document.querySelectorAll(".page").forEach(p=>p.classList.remove("on"));
+  document.getElementById("page-"+pg).classList.add("on");
+  document.getElementById("ptitle").innerHTML=`${TIT[pg][0]}<small>${TIT[pg][1]}</small>`;}));
+
+// ===== UI =====
+document.getElementById("connBtn").onclick=()=>document.getElementById("modal").classList.add("on");
+document.getElementById("c-cancel").onclick=()=>document.getElementById("modal").classList.remove("on");
+document.getElementById("c-connect").onclick=()=>{const demo=document.getElementById("c-demo").checked;
+  document.getElementById("modal").classList.remove("on");if(demoTimer){clearInterval(demoTimer);demoTimer=null;}
+  if(demo){setConn(false,"DÉMO");demoTimer=setInterval(demoTick,2000);demoTick();}
+  else connectMqtt(document.getElementById("c-host").value.trim(),document.getElementById("c-user").value,document.getElementById("c-pass").value);};
+document.getElementById("modeBtn").onclick=()=>{MODE=MODE==="present"?"away":"present";
+  document.getElementById("modeTxt").textContent=MODE==="present"?"PRÉSENT":"ABSENT";
+  document.getElementById("modeBtn").classList.toggle("away",MODE==="away");
+  if(mqttClient&&mqttClient.connected)mqttClient.publish("smarthome/mode",MODE);
+  logEvent("MODE","Présence : "+(MODE==="present"?"présent":"absent"));};
+document.getElementById("f-piece").onchange=suggestTopic;document.getElementById("f-type").onchange=suggestTopic;
+document.getElementById("f-add").onclick=addSensor;document.getElementById("f-reset").onclick=()=>{document.getElementById("f-id").value="";suggestTopic();};
+setInterval(()=>document.getElementById("clock").textContent=new Date().toTimeString().slice(0,8),1000);
+
+// ===== INIT =====
+document.getElementById("c-host").value=HMQ.host;document.getElementById("c-user").value=HMQ.user;document.getElementById("c-pass").value=HMQ.pass;
+buildPlan();fillPieces();suggestTopic();initCharts();renderIA();
+["salon","cuisine","chparents","garage"].forEach(p=>{const pn=(ROOMS.find(r=>r.id===p)||{}).name;
+  SENSORS.push({id:`capteur_${p}`,piece:p,pieceName:pn,type:"temperature",topic:`smarthome/${p}/temperature`});});
+renderSensors();demoTimer=setInterval(demoTick,2000);demoTick();
+logEvent("SYSTÈME","Poste d'exploitation v2 initialisé — mode démo");
+</script>
+</body>
+</html>

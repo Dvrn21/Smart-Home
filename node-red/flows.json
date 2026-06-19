@@ -1,0 +1,273 @@
+[
+  {
+    "id": "flow_smarthome",
+    "type": "tab",
+    "label": "Smart Home — Exploitation",
+    "disabled": false,
+    "info": "Cerveau du poste d'exploitation : MQTT, automatisation, API d'etat, registre capteurs."
+  },
+  {
+    "id": "hivemq",
+    "type": "mqtt-broker",
+    "name": "HiveMQ Cloud",
+    "broker": "VOTRE-CLUSTER.s1.eu.hivemq.cloud",
+    "port": "8883",
+    "clientid": "node-red-exploit",
+    "autoConnect": true,
+    "usetls": true,
+    "tls": "tlsconf",
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "birthTopic": "",
+    "willTopic": ""
+  },
+  {
+    "id": "tlsconf",
+    "type": "tls-config",
+    "name": "HiveMQ TLS",
+    "verifyservercert": true,
+    "servername": "",
+    "alpnprotocol": ""
+  },
+  {
+    "id": "in_capteurs",
+    "type": "mqtt in",
+    "z": "flow_smarthome",
+    "name": "Capteurs",
+    "topic": "smarthome/+/+",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "hivemq",
+    "x": 130,
+    "y": 120,
+    "wires": [
+      [
+        "fn_parse",
+        "fn_auto"
+      ]
+    ]
+  },
+  {
+    "id": "fn_parse",
+    "type": "function",
+    "z": "flow_smarthome",
+    "name": "Parser capteurs",
+    "func": "// Parser capteurs : smarthome/<piece>/<capteur>\nvar p = msg.topic.split(\"/\");\nif (p[1] === \"predictions\") return null;\nvar piece = p[1], capteur = p[2];\nvar st = flow.get(\"state\") || {};\nst[piece] = st[piece] || {};\nvar v = Number(msg.payload);\nif (isNaN(v)) { try { v = JSON.parse(msg.payload).value; } catch(e) {} }\nst[piece][capteur] = v;\nst[piece].ts = Date.now();\nflow.set(\"state\", st);\nnode.status({fill:\"green\", shape:\"dot\", text: piece + \"/\" + capteur + \" = \" + v});\nreturn msg;\n",
+    "outputs": 1,
+    "x": 360,
+    "y": 100,
+    "wires": [
+      [
+        "state_store"
+      ]
+    ]
+  },
+  {
+    "id": "state_store",
+    "type": "change",
+    "z": "flow_smarthome",
+    "name": "(etat en contexte)",
+    "rules": [],
+    "x": 600,
+    "y": 100,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "fn_auto",
+    "type": "function",
+    "z": "flow_smarthome",
+    "name": "Automatisation",
+    "func": "// Moteur d'automatisation (declenche sur message capteur)\nvar p = msg.topic.split(\"/\"); var piece = p[1], capteur = p[2];\nvar pr = flow.get(\"predictions\") || {};\nvar mode = global.get(\"mode\") || \"present\";\nvar h = new Date().getHours();\nvar out = [];\n\n// Regle 1 : eclairage auto sur presence la nuit\nif (capteur === \"motion\" && Number(msg.payload) === 1 && (h < 7 || h >= 19))\n    out.push({ topic:\"smarthome/\"+piece+\"/light/set\", payload:\"1\" });\n\n// Regle 2 : alerte intrusion en mode absent\nif (capteur === \"motion\" && Number(msg.payload) === 1 && mode === \"away\"\n    && (piece === \"garage\" || piece === \"terrasse\" || piece === \"entree\"))\n    out.push({ topic:\"smarthome/alerts\", payload: JSON.stringify({type:\"intrusion\", piece:piece, ts:Date.now()}) });\n\n// Regle 3 : chauffage anticipe (prediction IA)\nif (pr[piece] && pr[piece].temp_next != null && pr[piece].temp_next < 19)\n    out.push({ topic:\"smarthome/\"+piece+\"/heating/set\", payload:\"1\" });\n\n// Regle 4 : routine cafe matin (prediction IA)\nif (piece === \"cuisine\" && pr.cuisine && pr.cuisine.activity_prob > 0.6 && h >= 6 && h <= 9)\n    out.push({ topic:\"smarthome/cuisine/coffee/set\", payload:\"1\" });\n\nif (out.length === 0) return null;\nnode.status({fill:\"yellow\", shape:\"dot\", text: out.length + \" action(s)\"});\nreturn [ out ];\n",
+    "outputs": 1,
+    "x": 360,
+    "y": 180,
+    "wires": [
+      [
+        "out_cmd",
+        "dbg_auto"
+      ]
+    ]
+  },
+  {
+    "id": "out_cmd",
+    "type": "mqtt out",
+    "z": "flow_smarthome",
+    "name": "Commandes",
+    "topic": "",
+    "qos": "1",
+    "retain": "false",
+    "broker": "hivemq",
+    "x": 600,
+    "y": 160,
+    "wires": []
+  },
+  {
+    "id": "dbg_auto",
+    "type": "debug",
+    "z": "flow_smarthome",
+    "name": "actions",
+    "active": true,
+    "tosidebar": true,
+    "complete": "payload",
+    "x": 600,
+    "y": 200,
+    "wires": []
+  },
+  {
+    "id": "in_pred",
+    "type": "mqtt in",
+    "z": "flow_smarthome",
+    "name": "Predictions IA",
+    "topic": "smarthome/predictions/+",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "hivemq",
+    "x": 140,
+    "y": 280,
+    "wires": [
+      [
+        "fn_pred"
+      ]
+    ]
+  },
+  {
+    "id": "fn_pred",
+    "type": "function",
+    "z": "flow_smarthome",
+    "name": "Parser predictions",
+    "func": "// Parser predictions : smarthome/predictions/<piece>\nvar p = msg.topic.split(\"/\");\nvar piece = p[2];\nvar pr = flow.get(\"predictions\") || {};\ntry { pr[piece] = Object.assign(pr[piece] || {}, JSON.parse(msg.payload)); } catch(e) {}\nflow.set(\"predictions\", pr);\nnode.status({fill:\"blue\", shape:\"dot\", text:\"pred \" + piece});\nreturn msg;\n",
+    "outputs": 1,
+    "x": 380,
+    "y": 280,
+    "wires": [
+      [
+        "dbg_pred"
+      ]
+    ]
+  },
+  {
+    "id": "dbg_pred",
+    "type": "debug",
+    "z": "flow_smarthome",
+    "name": "pred",
+    "active": false,
+    "tosidebar": true,
+    "complete": "payload",
+    "x": 600,
+    "y": 280,
+    "wires": []
+  },
+  {
+    "id": "in_cfg",
+    "type": "mqtt in",
+    "z": "flow_smarthome",
+    "name": "Config capteurs",
+    "topic": "smarthome/config/sensors",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "hivemq",
+    "x": 140,
+    "y": 360,
+    "wires": [
+      [
+        "fn_reg"
+      ]
+    ]
+  },
+  {
+    "id": "fn_reg",
+    "type": "function",
+    "z": "flow_smarthome",
+    "name": "Registre capteurs",
+    "func": "// Registre des capteurs (publie par le HUD, retenu)\ntry {\n    var reg = JSON.parse(msg.payload);\n    flow.set(\"sensors\", reg);\n    node.status({fill:\"blue\", shape:\"dot\", text: reg.length + \" capteurs declares\"});\n} catch(e) { node.warn(\"registre invalide\"); }\nreturn null;\n",
+    "outputs": 1,
+    "x": 380,
+    "y": 360,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "in_mode",
+    "type": "mqtt in",
+    "z": "flow_smarthome",
+    "name": "Mode presence",
+    "topic": "smarthome/mode",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "hivemq",
+    "x": 140,
+    "y": 430,
+    "wires": [
+      [
+        "fn_mode"
+      ]
+    ]
+  },
+  {
+    "id": "fn_mode",
+    "type": "function",
+    "z": "flow_smarthome",
+    "name": "Set mode",
+    "func": "// Mode presence (smarthome/mode : present|away)\nvar m = (\"\"+msg.payload).trim();\nif (m === \"present\" || m === \"away\") { global.set(\"mode\", m); node.status({text:\"mode \" + m}); }\nreturn null;\n",
+    "outputs": 1,
+    "x": 360,
+    "y": 430,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "http_state",
+    "type": "http in",
+    "z": "flow_smarthome",
+    "name": "GET /api/state",
+    "url": "/api/state",
+    "method": "get",
+    "x": 150,
+    "y": 520,
+    "wires": [
+      [
+        "fn_state"
+      ]
+    ]
+  },
+  {
+    "id": "fn_state",
+    "type": "function",
+    "z": "flow_smarthome",
+    "name": "Etat JSON",
+    "func": "// Expose l'etat courant en JSON (fallback pour le HUD)\nmsg.payload = {\n    state: flow.get(\"state\") || {},\n    predictions: flow.get(\"predictions\") || {},\n    sensors: flow.get(\"sensors\") || [],\n    mode: global.get(\"mode\") || \"present\",\n    ts: Date.now()\n};\nmsg.headers = { \"Access-Control-Allow-Origin\":\"*\", \"Content-Type\":\"application/json\" };\nreturn msg;\n",
+    "outputs": 1,
+    "x": 370,
+    "y": 520,
+    "wires": [
+      [
+        "http_resp"
+      ]
+    ]
+  },
+  {
+    "id": "http_resp",
+    "type": "http response",
+    "z": "flow_smarthome",
+    "name": "",
+    "statusCode": "200",
+    "x": 600,
+    "y": 520,
+    "wires": []
+  },
+  {
+    "id": "note",
+    "type": "comment",
+    "z": "flow_smarthome",
+    "name": "HUD : servir index.html via httpStatic (voir README). Saisir hote + identifiants HiveMQ dans le noeud broker.",
+    "info": "",
+    "x": 360,
+    "y": 40,
+    "wires": []
+  }
+]
