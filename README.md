@@ -7,10 +7,7 @@
 ![MQTT](https://img.shields.io/badge/MQTT-HiveMQ%20Cloud%20TLS-660066)
 ![Licence](https://img.shields.io/badge/Licence-MIT-green)
 
-Ce dépôt regroupe deux postes d'un système domotique IoT :
 
-- **PC Maintenance — IA (Google Colab).** Des réseaux de neurones apprennent les habitudes de la maison (température, présence, lumière, état des fenêtres) pour **prédire** des déclencheurs d'automatisation : éclairage anticipé, chauffage avant la baisse de température, routine café du matin…
-- **PC Exploitation — Node-RED + Dashboard HUD.** Le poste administrateur : il centralise la télémétrie, exécute l'automatisation, exploite les prédictions de l'IA et présente un tableau de bord web temps réel avec le plan de la maison.
 
 La communication passe par **MQTT TLS via HiveMQ Cloud**.
 
