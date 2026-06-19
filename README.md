@@ -133,7 +133,6 @@ Architecture des réseaux de neurones (présence par pièce + prévision de temp
 ## 👤 Auteur & contexte
 
 Projet académique — **CNAM**, juin 2026.
-Partie réalisée par : *____________* (module IA + poste d'exploitation).
 Équipe complète : Alexis (TAB5), Rayan (ESP32), Devran (IA / Node-RED), Pierre (architecture / HiveMQ).
 
 ## 📄 Licence
